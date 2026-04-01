@@ -38,6 +38,8 @@ import static org.apache.pinot.segment.spi.AggregationFunctionType.MAX;
 import static org.apache.pinot.segment.spi.AggregationFunctionType.MIN;
 import static org.apache.pinot.segment.spi.AggregationFunctionType.PERCENTILEKLL;
 import static org.apache.pinot.segment.spi.AggregationFunctionType.PERCENTILERAWKLL;
+import static org.apache.pinot.segment.spi.AggregationFunctionType.PERCENTILERAWTDIGEST;
+import static org.apache.pinot.segment.spi.AggregationFunctionType.PERCENTILETDIGEST;
 import static org.apache.pinot.segment.spi.AggregationFunctionType.SUM;
 import static org.apache.pinot.segment.spi.AggregationFunctionType.SUMVALUESINTEGERSUMTUPLESKETCH;
 
@@ -178,7 +180,7 @@ public class MinionConstants {
             DISTINCTCOUNTRAWTHETASKETCH, DISTINCTCOUNTTUPLESKETCH, DISTINCTCOUNTRAWINTEGERSUMTUPLESKETCH,
             SUMVALUESINTEGERSUMTUPLESKETCH, AVGVALUEINTEGERSUMTUPLESKETCH, DISTINCTCOUNTHLLPLUS,
             DISTINCTCOUNTRAWHLLPLUS, DISTINCTCOUNTCPCSKETCH, DISTINCTCOUNTRAWCPCSKETCH, DISTINCTCOUNTULL,
-            DISTINCTCOUNTRAWULL, PERCENTILEKLL, PERCENTILERAWKLL);
+            DISTINCTCOUNTRAWULL, PERCENTILEKLL, PERCENTILERAWKLL, PERCENTILETDIGEST, PERCENTILERAWTDIGEST);
   }
 
   // Generate segment and push to controller based on batch ingestion configs
