@@ -145,11 +145,33 @@ public class PinotDataAndQueryAnonymizer {
   public PinotDataAndQueryAnonymizer(String segmentDir, String outputDir, String fileNamePrefix,
       Map<String, Integer> globalDictionaryColumns, Set<String> columnsNotAnonymized,
       boolean mapBasedGlobalDictionary) {
+    this(segmentDir, outputDir, fileNamePrefix, globalDictionaryColumns, columnsNotAnonymized,
+        mapBasedGlobalDictionary ? GDBackend.MAP : GDBackend.ARRAY);
+  }
+
+  public enum GDBackend {
+    MAP, ARRAY, ROCKSDB
+  }
+
+  public PinotDataAndQueryAnonymizer(String segmentDir, String outputDir, String fileNamePrefix,
+      Map<String, Integer> globalDictionaryColumns, Set<String> columnsNotAnonymized,
+      GDBackend gdBackend) {
     _outputDir = outputDir;
     _segmentDir = segmentDir;
     _filePrefix = fileNamePrefix;
-    _globalDictionaries =
-        mapBasedGlobalDictionary ? new MapBasedGlobalDictionaries() : new ArrayBasedGlobalDictionaries();
+    switch (gdBackend) {
+      case MAP:
+        _globalDictionaries = new MapBasedGlobalDictionaries();
+        break;
+      case ARRAY:
+        _globalDictionaries = new ArrayBasedGlobalDictionaries();
+        break;
+      case ROCKSDB:
+        _globalDictionaries = new RocksDBGlobalDictionaries();
+        break;
+      default:
+        throw new IllegalArgumentException("Unknown global dictionary backend: " + gdBackend);
+    }
     _origToDerivedColumnsMap = new HashMap<>();
     _columnToFieldSpecMap = new HashMap<>();
     _globalDictionaryColumns = globalDictionaryColumns;

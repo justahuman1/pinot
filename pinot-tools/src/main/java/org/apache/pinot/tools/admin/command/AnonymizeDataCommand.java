@@ -73,9 +73,15 @@ public class AnonymizeDataCommand extends AbstractBaseAdminCommand implements Co
   private String[] _columnsParticipatingInFilter;
 
   @CommandLine.Option(names = {"-mapBasedGlobalDictionaries"},
-      description = "Whether to use map based global dictionary for improved performance of building global dictionary"
-          + " but with additional heap overhead. True by default")
+      description = "DEPRECATED: use -gdBackend=map|array|rocksdb. Whether to use map based global dictionary for "
+          + "improved performance of building global dictionary but with additional heap overhead. True by default. "
+          + "Ignored if -gdBackend is set.")
   private boolean _mapBasedGlobalDictionaries = true;
+
+  @CommandLine.Option(names = {"-gdBackend"},
+      description = "Global dictionary backend: map (default, in-memory HashMap+TreeMap), array (in-memory arrays), "
+          + "rocksdb (disk-backed via RocksDB; use for very high cardinality columns that don't fit in heap).")
+  private String _gdBackend;
 
   @Override
   public String getName() {
@@ -118,10 +124,18 @@ public class AnonymizeDataCommand extends AbstractBaseAdminCommand implements Co
     }
 
     if (_action.equalsIgnoreCase("generateData")) {
+      PinotDataAndQueryAnonymizer.GDBackend backend;
+      if (_gdBackend != null) {
+        backend = PinotDataAndQueryAnonymizer.GDBackend.valueOf(_gdBackend.toUpperCase());
+      } else {
+        backend = _mapBasedGlobalDictionaries
+            ? PinotDataAndQueryAnonymizer.GDBackend.MAP
+            : PinotDataAndQueryAnonymizer.GDBackend.ARRAY;
+      }
       // generate data
       PinotDataAndQueryAnonymizer pinotDataGenerator =
           new PinotDataAndQueryAnonymizer(_inputSegmentsDir, _outputDir, _avroFileNamePrefix,
-              filterColumnCardinalityMap, columnsToRetainDataFor, _mapBasedGlobalDictionaries);
+              filterColumnCardinalityMap, columnsToRetainDataFor, backend);
       // first build global dictionaries
       pinotDataGenerator.buildGlobalDictionaries();
       // use global dictionaries to generate Avro files

@@ -168,6 +168,11 @@
       <artifactId>picocli</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.rocksdb</groupId>
+      <artifactId>rocksdbjni</artifactId>
+      <version>9.4.0</version>
+    </dependency>
+    <dependency>
       <groupId>org.glassfish.tyrus.bundles</groupId>
       <artifactId>tyrus-standalone-client</artifactId>
     </dependency>
