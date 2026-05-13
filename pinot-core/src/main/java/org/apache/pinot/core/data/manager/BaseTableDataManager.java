@@ -57,6 +57,7 @@ import org.apache.pinot.common.metadata.segment.SegmentZKMetadata;
 import org.apache.pinot.common.metrics.ServerGauge;
 import org.apache.pinot.common.metrics.ServerMeter;
 import org.apache.pinot.common.metrics.ServerMetrics;
+import org.apache.pinot.common.metrics.ServerTimer;
 import org.apache.pinot.common.restlet.resources.SegmentErrorInfo;
 import org.apache.pinot.common.utils.TarCompressionUtils;
 import org.apache.pinot.common.utils.config.EarInfo;
@@ -456,8 +457,15 @@ public abstract class BaseTableDataManager implements TableDataManager {
     _logger.info("Downloading and loading segment: {}", segmentName);
     File indexDir = downloadSegment(zkMetadata);
     // this call should update the crypter cache
-    addSegment(ImmutableSegmentLoader.load(indexDir, indexLoadingConfig, _segmentOperationsThrottler, _crypterCache),
-            zkMetadata);
+    long loadStartMs = System.currentTimeMillis();
+    ImmutableSegment segment;
+    try {
+      segment = ImmutableSegmentLoader.load(indexDir, indexLoadingConfig, _segmentOperationsThrottler, _crypterCache);
+    } finally {
+      _serverMetrics.addTimedTableValue(_tableNameWithType, ServerTimer.SEGMENT_LOAD_TIME_MS,
+          System.currentTimeMillis() - loadStartMs, TimeUnit.MILLISECONDS);
+    }
+    addSegment(segment, zkMetadata);
     _logger.info("Downloaded and loaded segment: {} with CRC: {} on tier: {}", segmentName, zkMetadata.getCrc(),
         TierConfigUtils.normalizeTierName(zkMetadata.getTier()));
   }
@@ -992,18 +1000,28 @@ public abstract class BaseTableDataManager implements TableDataManager {
           _logger.info("Downloading segment: {} using streamed download-untar with maxStreamRateInByte: {}",
               segmentName, _streamSegmentDownloadUntarRateLimitBytesPerSec);
           AtomicInteger failedAttempts = new AtomicInteger(0);
+          long downloadStartMs = System.currentTimeMillis();
           try {
             untarredSegmentDir = SegmentFetcherFactory.fetchAndStreamUntarToLocal(downloadUrl, tempRootDir,
                 _streamSegmentDownloadUntarRateLimitBytesPerSec, failedAttempts);
             _logger.info("Downloaded and untarred segment: {} from: {}, failed attempts: {}", segmentName, downloadUrl,
                 failedAttempts.get());
           } finally {
+            _serverMetrics.addTimedTableValue(_tableNameWithType, ServerTimer.SEGMENT_BYTE_TRANSFER_TIME_MS,
+                System.currentTimeMillis() - downloadStartMs, TimeUnit.MILLISECONDS);
             _serverMetrics.addMeteredTableValue(_tableNameWithType,
                 ServerMeter.SEGMENT_STREAMED_DOWNLOAD_UNTAR_FAILURES, failedAttempts.get());
           }
         } else {
           File segmentTarFile = new File(tempRootDir, segmentName + TarCompressionUtils.TAR_COMPRESSED_FILE_EXTENSION);
-          SegmentFetcherFactory.fetchAndDecryptSegmentToLocal(downloadUrl, segmentTarFile, zkMetadata.getCrypterName());
+          long downloadStartMs = System.currentTimeMillis();
+          try {
+            SegmentFetcherFactory.fetchAndDecryptSegmentToLocal(downloadUrl, segmentTarFile,
+                zkMetadata.getCrypterName());
+          } finally {
+            _serverMetrics.addTimedTableValue(_tableNameWithType, ServerTimer.SEGMENT_BYTE_TRANSFER_TIME_MS,
+                System.currentTimeMillis() - downloadStartMs, TimeUnit.MILLISECONDS);
+          }
           _logger.info("Downloaded tarred segment: {} from: {} to: {}, file length: {}", segmentName, downloadUrl,
               segmentTarFile, segmentTarFile.length());
           untarredSegmentDir = untarSegment(segmentName, segmentTarFile, tempRootDir);

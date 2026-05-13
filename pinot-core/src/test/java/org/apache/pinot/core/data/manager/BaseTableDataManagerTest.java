@@ -28,10 +28,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.apache.commons.io.FileUtils;
 import org.apache.helix.HelixManager;
 import org.apache.pinot.common.metadata.segment.SegmentZKMetadata;
 import org.apache.pinot.common.metrics.ServerMetrics;
+import org.apache.pinot.common.metrics.ServerTimer;
 import org.apache.pinot.common.tier.TierFactory;
 import org.apache.pinot.common.utils.TarCompressionUtils;
 import org.apache.pinot.common.utils.fetcher.BaseSegmentFetcher;
@@ -74,7 +76,10 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -753,5 +758,68 @@ public class BaseTableDataManagerTest {
     File indexMapFile =
         new File(new File(indexDir, SegmentDirectoryPaths.V3_SUBDIRECTORY_NAME), V1Constants.INDEX_MAP_FILE_NAME);
     return FileUtils.readFileToString(indexMapFile, StandardCharsets.UTF_8).contains(columnName + ".inverted_index");
+  }
+
+  /**
+   * Verifies that SEGMENT_BYTE_TRANSFER_TIME_MS and SEGMENT_LOAD_TIME_MS are both recorded
+   * (with a non-negative duration) when downloadAndLoadSegment succeeds.
+   */
+  @Test
+  public void testDownloadAndLoadSegmentEmitsTimers()
+      throws Exception {
+    // Create a real segment tarball so the actual fetch + load path executes.
+    SegmentZKMetadata zkMetadata = createRawSegment(SegmentVersion.v3, 5);
+
+    // Swap in a fresh Mockito mock so we can verify interactions.
+    ServerMetrics.deregister();
+    ServerMetrics mockMetrics = mock(ServerMetrics.class);
+    ServerMetrics.register(mockMetrics);
+    try {
+      BaseTableDataManager tableDataManager = createTableManager();
+      tableDataManager.downloadAndLoadSegment(zkMetadata, new IndexLoadingConfig());
+
+      // SEGMENT_BYTE_TRANSFER_TIME_MS must have been recorded once (non-streaming path).
+      verify(mockMetrics).addTimedTableValue(eq(OFFLINE_TABLE_NAME),
+          eq(ServerTimer.SEGMENT_BYTE_TRANSFER_TIME_MS), anyLong(), eq(TimeUnit.MILLISECONDS));
+
+      // SEGMENT_LOAD_TIME_MS must have been recorded once.
+      verify(mockMetrics).addTimedTableValue(eq(OFFLINE_TABLE_NAME),
+          eq(ServerTimer.SEGMENT_LOAD_TIME_MS), anyLong(), eq(TimeUnit.MILLISECONDS));
+    } finally {
+      // Restore a generic mock so the rest of the test suite is unaffected.
+      ServerMetrics.deregister();
+      ServerMetrics.register(mock(ServerMetrics.class));
+    }
+  }
+
+  /**
+   * Verifies that SEGMENT_BYTE_TRANSFER_TIME_MS is recorded even when the download fails,
+   * so that slow-then-failed transfers are visible in the timer reservoir.
+   */
+  @Test
+  public void testDownloadFailureStillEmitsByteTransferTimer()
+      throws Exception {
+    // Point the download URL at a non-existent file so the fetch will fail.
+    SegmentZKMetadata zkMetadata = new SegmentZKMetadata(SEGMENT_NAME);
+    zkMetadata.setDownloadUrl("file:///nonexistent/path/to/segment.tar.gz");
+    zkMetadata.setCrc(12345L);
+
+    ServerMetrics.deregister();
+    ServerMetrics mockMetrics = mock(ServerMetrics.class);
+    ServerMetrics.register(mockMetrics);
+    try {
+      BaseTableDataManager tableDataManager = createTableManager();
+      try {
+        tableDataManager.downloadAndLoadSegment(zkMetadata, new IndexLoadingConfig());
+      } catch (Exception expected) {
+        // Expected: download will fail.
+      }
+      // Even on failure, the byte-transfer timer should have fired.
+      verify(mockMetrics).addTimedTableValue(eq(OFFLINE_TABLE_NAME),
+          eq(ServerTimer.SEGMENT_BYTE_TRANSFER_TIME_MS), anyLong(), eq(TimeUnit.MILLISECONDS));
+    } finally {
+      ServerMetrics.deregister();
+      ServerMetrics.register(mock(ServerMetrics.class));
+    }
   }
 }

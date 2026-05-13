@@ -103,7 +103,26 @@ public enum ServerTimer implements AbstractMetrics.Timer {
 
   PREDOWNLOAD_TIME("millis", true),
   // The total time spent in processing the workload queries
-  WORKLOAD_TOTAL_QUERY_TIME_MS("millis", false);
+  WORKLOAD_TOTAL_QUERY_TIME_MS("millis", false),
+
+  /**
+   * Wall-clock time (in milliseconds) to transfer segment bytes from deep storage to the server.
+   * Covers both streaming (download-untar) and non-streaming (fetch-then-untar) code paths in
+   * BaseTableDataManager.downloadSegmentFromDeepStore. Emitted per-table. Fires on both
+   * successful and failed downloads (via try/finally) so that slow-then-failed transfers are
+   * visible in the p95/p99 of the Yammer Timer reservoir.
+   */
+  SEGMENT_BYTE_TRANSFER_TIME_MS("milliseconds", false,
+      "Wall-clock time for transferring segment bytes from deep storage to the server, "
+          + "covering both streaming and non-streaming download paths."),
+
+  /**
+   * Wall-clock time (in milliseconds) to load and index a downloaded segment via
+   * ImmutableSegmentLoader.load in BaseTableDataManager.downloadAndLoadSegment. Emitted
+   * per-table. Does not include the download phase; only the in-process load/index time.
+   */
+  SEGMENT_LOAD_TIME_MS("milliseconds", false,
+      "Wall-clock time for loading and indexing a downloaded segment via ImmutableSegmentLoader.load.");
 
   private final String _timerName;
   private final boolean _global;
