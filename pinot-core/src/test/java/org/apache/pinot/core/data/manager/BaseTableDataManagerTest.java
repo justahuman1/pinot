@@ -76,8 +76,8 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.longThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -780,13 +780,51 @@ public class BaseTableDataManagerTest {
 
       // SEGMENT_BYTE_TRANSFER_TIME_MS must have been recorded once (non-streaming path).
       verify(mockMetrics).addTimedTableValue(eq(OFFLINE_TABLE_NAME),
-          eq(ServerTimer.SEGMENT_BYTE_TRANSFER_TIME_MS), anyLong(), eq(TimeUnit.MILLISECONDS));
+          eq(ServerTimer.SEGMENT_BYTE_TRANSFER_TIME_MS), longThat(d -> d >= 0), eq(TimeUnit.MILLISECONDS));
 
       // SEGMENT_LOAD_TIME_MS must have been recorded once.
       verify(mockMetrics).addTimedTableValue(eq(OFFLINE_TABLE_NAME),
-          eq(ServerTimer.SEGMENT_LOAD_TIME_MS), anyLong(), eq(TimeUnit.MILLISECONDS));
+          eq(ServerTimer.SEGMENT_LOAD_TIME_MS), longThat(d -> d >= 0), eq(TimeUnit.MILLISECONDS));
     } finally {
       // Restore a generic mock so the rest of the test suite is unaffected.
+      ServerMetrics.deregister();
+      ServerMetrics.register(mock(ServerMetrics.class));
+    }
+  }
+
+  /**
+   * Verifies that SEGMENT_LOAD_TIME_MS is recorded even when ImmutableSegmentLoader.load() throws,
+   * so that failed load attempts are still visible in the timer reservoir.
+   */
+  @Test
+  public void testLoadFailureStillEmitsLoadTimer()
+      throws Exception {
+    // Build a tarball from a directory that lacks segment metadata so load() will throw.
+    File fakeSegmentDir = new File(TEMP_DIR, "fakeSegmentDir");
+    fakeSegmentDir.mkdirs();
+    FileUtils.write(new File(fakeSegmentDir, "dummy.txt"), "not a real segment");
+    File fakeTarFile = new File(TEMP_DIR, SEGMENT_NAME + TarCompressionUtils.TAR_COMPRESSED_FILE_EXTENSION);
+    TarCompressionUtils.createCompressedTarFile(fakeSegmentDir, fakeTarFile);
+    FileUtils.deleteQuietly(fakeSegmentDir);
+
+    SegmentZKMetadata zkMetadata = new SegmentZKMetadata(SEGMENT_NAME);
+    zkMetadata.setDownloadUrl("file://" + fakeTarFile.getAbsolutePath());
+    zkMetadata.setCrc(12345L);
+
+    ServerMetrics.deregister();
+    ServerMetrics mockMetrics = mock(ServerMetrics.class);
+    ServerMetrics.register(mockMetrics);
+    try {
+      BaseTableDataManager tableDataManager = createTableManager();
+      try {
+        tableDataManager.downloadAndLoadSegment(zkMetadata, new IndexLoadingConfig());
+      } catch (Exception expected) {
+        // Expected: ImmutableSegmentLoader.load() will throw on the fake segment.
+      }
+      // Even on load failure, SEGMENT_LOAD_TIME_MS must have fired.
+      verify(mockMetrics).addTimedTableValue(eq(OFFLINE_TABLE_NAME),
+          eq(ServerTimer.SEGMENT_LOAD_TIME_MS), longThat(d -> d >= 0), eq(TimeUnit.MILLISECONDS));
+    } finally {
       ServerMetrics.deregister();
       ServerMetrics.register(mock(ServerMetrics.class));
     }
@@ -816,7 +854,7 @@ public class BaseTableDataManagerTest {
       }
       // Even on failure, the byte-transfer timer should have fired.
       verify(mockMetrics).addTimedTableValue(eq(OFFLINE_TABLE_NAME),
-          eq(ServerTimer.SEGMENT_BYTE_TRANSFER_TIME_MS), anyLong(), eq(TimeUnit.MILLISECONDS));
+          eq(ServerTimer.SEGMENT_BYTE_TRANSFER_TIME_MS), longThat(d -> d >= 0), eq(TimeUnit.MILLISECONDS));
     } finally {
       ServerMetrics.deregister();
       ServerMetrics.register(mock(ServerMetrics.class));

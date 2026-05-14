@@ -1018,13 +1018,13 @@ public abstract class BaseTableDataManager implements TableDataManager {
           try {
             SegmentFetcherFactory.fetchAndDecryptSegmentToLocal(downloadUrl, segmentTarFile,
                 zkMetadata.getCrypterName());
+            _logger.info("Downloaded tarred segment: {} from: {} to: {}, file length: {}", segmentName, downloadUrl,
+                segmentTarFile, segmentTarFile.length());
+            untarredSegmentDir = untarSegment(segmentName, segmentTarFile, tempRootDir);
           } finally {
             _serverMetrics.addTimedTableValue(_tableNameWithType, ServerTimer.SEGMENT_BYTE_TRANSFER_TIME_MS,
                 System.currentTimeMillis() - downloadStartMs, TimeUnit.MILLISECONDS);
           }
-          _logger.info("Downloaded tarred segment: {} from: {} to: {}, file length: {}", segmentName, downloadUrl,
-              segmentTarFile, segmentTarFile.length());
-          untarredSegmentDir = untarSegment(segmentName, segmentTarFile, tempRootDir);
         }
         File indexDir = moveSegment(segmentName, untarredSegmentDir);
         _logger.info("Downloaded segment: {} from: {} to: {}", segmentName, downloadUrl, indexDir);
@@ -1066,18 +1066,24 @@ public abstract class BaseTableDataManager implements TableDataManager {
           segmentDownloadThrottler.getQueueLength());
     }
     try {
-      SegmentFetcherFactory.fetchAndDecryptSegmentToLocal(segmentName, _peerDownloadScheme, () -> {
-        List<URI> peerServerURIs =
-            PeerServerSegmentFinder.getPeerServerURIs(_helixManager, _tableNameWithType, segmentName,
-                _peerDownloadScheme);
-        Collections.shuffle(peerServerURIs);
-        return peerServerURIs;
-      }, segmentTarFile, zkMetadata.getCrypterName());
-      _logger.info("Downloaded tarred segment: {} from peers to: {}, file length: {}", segmentName, segmentTarFile,
-          segmentTarFile.length());
-      File indexDir = untarAndMoveSegment(segmentName, segmentTarFile, tempRootDir);
-      _logger.info("Downloaded segment: {} from peers to: {}", segmentName, indexDir);
-      return indexDir;
+      long downloadStartMs = System.currentTimeMillis();
+      try {
+        SegmentFetcherFactory.fetchAndDecryptSegmentToLocal(segmentName, _peerDownloadScheme, () -> {
+          List<URI> peerServerURIs =
+              PeerServerSegmentFinder.getPeerServerURIs(_helixManager, _tableNameWithType, segmentName,
+                  _peerDownloadScheme);
+          Collections.shuffle(peerServerURIs);
+          return peerServerURIs;
+        }, segmentTarFile, zkMetadata.getCrypterName());
+        _logger.info("Downloaded tarred segment: {} from peers to: {}, file length: {}", segmentName, segmentTarFile,
+            segmentTarFile.length());
+        File indexDir = untarAndMoveSegment(segmentName, segmentTarFile, tempRootDir);
+        _logger.info("Downloaded segment: {} from peers to: {}", segmentName, indexDir);
+        return indexDir;
+      } finally {
+        _serverMetrics.addTimedTableValue(_tableNameWithType, ServerTimer.SEGMENT_BYTE_TRANSFER_TIME_MS,
+            System.currentTimeMillis() - downloadStartMs, TimeUnit.MILLISECONDS);
+      }
     } catch (Exception e) {
       _serverMetrics.addMeteredTableValue(_tableNameWithType, ServerMeter.SEGMENT_DOWNLOAD_FROM_PEERS_FAILURES, 1);
       throw e;

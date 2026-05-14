@@ -46,6 +46,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.apache.pinot.common.Utils;
 import org.apache.pinot.common.metadata.segment.SegmentZKMetadata;
 import org.apache.pinot.common.metrics.ServerGauge;
+import org.apache.pinot.common.metrics.ServerTimer;
 import org.apache.pinot.common.restlet.resources.SegmentErrorInfo;
 import org.apache.pinot.common.utils.LLCSegmentName;
 import org.apache.pinot.common.utils.SegmentUtils;
@@ -842,8 +843,15 @@ public class RealtimeTableDataManager extends BaseTableDataManager {
     IndexLoadingConfig indexLoadingConfig = fetchIndexLoadingConfig();
     indexLoadingConfig.setSegmentTier(zkMetadata.getTier());
     // this call should update the crypter cache if we suopport realtime
-    addSegment(ImmutableSegmentLoader.load(indexDir, indexLoadingConfig, _segmentOperationsThrottler, null),
-            zkMetadata);
+    long loadStartMs = System.currentTimeMillis();
+    ImmutableSegment immutableSegment;
+    try {
+      immutableSegment = ImmutableSegmentLoader.load(indexDir, indexLoadingConfig, _segmentOperationsThrottler, null);
+    } finally {
+      _serverMetrics.addTimedTableValue(_tableNameWithType, ServerTimer.SEGMENT_LOAD_TIME_MS,
+          System.currentTimeMillis() - loadStartMs, TimeUnit.MILLISECONDS);
+    }
+    addSegment(immutableSegment, zkMetadata);
     _logger.info("Downloaded and replaced CONSUMING segment: {}", segmentName);
   }
 
